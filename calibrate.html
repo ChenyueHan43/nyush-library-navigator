@@ -2,203 +2,197 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Map Calibration Tool (Auto-Fit)</title>
+<title>NYUSH Library - 录入与编辑神器</title>
 <style>
-  body { 
-    font-family: sans-serif; 
-    padding: 20px;
-    background-color: #f0f0f0;
+  body { font-family: 'Segoe UI', sans-serif; display: flex; height: 100vh; margin: 0; background: #1a1a1a; color: white; }
+  #sidebar { width: 350px; background: #2c3e50; padding: 20px; display: flex; flex-direction: column; box-shadow: 2px 0 10px rgba(0,0,0,0.5); }
+  #main { flex-grow: 1; display: flex; justify-content: center; align-items: center; overflow: hidden; background: #34495e; position: relative; }
+  canvas { max-width: 100%; max-height: 100%; object-fit: contain; background: white; cursor: crosshair; }
+  
+  .controls { background: #34495e; padding: 12px; border-radius: 8px; margin-bottom: 10px; }
+  button { width: 100%; padding: 10px; margin: 5px 0; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+  .btn-import { background: #f39c12; color: white; }
+  .btn-export { background: #2980b9; color: white; margin-top: auto; }
+  button:hover { opacity: 0.8; }
+
+  #point-list { overflow-y: auto; flex-grow: 1; margin-top: 10px; }
+  .point-item { 
+    background: #1a252f; padding: 10px; margin-bottom: 8px; border-radius: 4px; 
+    font-size: 13px; position: relative; border-left: 5px solid #27ae60;
   }
-  #container {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  #toolbar { 
-    margin-bottom: 15px; 
-    background: white;
-    padding: 10px;
-    border-radius: 8px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-  }
-  /* 关键修改：用 CSS 限制显示宽度，但不改变实际分辨率 */
-  canvas { 
-    border: 2px solid #333; 
-    cursor: crosshair; 
-    max-width: 90vw;  /* 限制最大宽度为屏幕宽度的 90% */
-    height: auto;     /* 高度自动缩放 */
-    box-shadow: 0 4px 10px rgba(0,0,0,0.2);
-  }
-  #output {
-    margin-top: 20px;
-    padding: 15px;
-    background: #333;
-    color: #0f0;
-    width: 90vw;
-    border-radius: 5px;
-    font-family: monospace;
-    white-space: pre-wrap;
+  .point-item .del-btn { 
+    position: absolute; right: 8px; top: 8px; color: #e74c3c; cursor: pointer; font-weight: bold; 
   }
 </style>
 </head>
 <body>
 
-<div id="container">
-  <h2>Library Map Calibration Tool</h2>
+<div id="sidebar">
+  <h3>数据编辑器</h3>
   
-  <div id="toolbar">
-    <label>Choose Floor:</label>
-    <select id="floorSel" onchange="loadFloor()">
-      <option value="5f">5F</option>
-      <option value="6f">6F</option>
+  <div class="controls">
+    <label style="font-size: 12px;">1. 加载底图:</label>
+    <select id="mapFile" onchange="loadMap()" style="width:100%; padding:5px;">
+      <option value="5f_base.jpg">5th Floor (5F)</option>
+      <option value="6f_base.jpg">6th Floor (6F)</option>
     </select>
-    <span style="margin-left:10px; color:#666; font-size: 0.9em;">(Drag red dots to position)</span>
   </div>
 
-  <canvas id="map"></canvas>
+  <div class="controls">
+    <label style="font-size: 12px;">2. 导入进度 (可选):</label>
+    <button class="btn-import" onclick="document.getElementById('fileInput').click()">Upload locations.csv</button>
+    <input type="file" id="fileInput" hidden accept=".csv" onchange="importCSV(this)">
+  </div>
 
-  <h3>Copy these coordinates to your CSV:</h3>
-  <pre id="output"></pre>
+  <div id="point-list"></div>
+
+  <button class="btn-export" onclick="exportCSV()">Download Updated CSV</button>
+</div>
+
+<div id="main">
+  <canvas id="canvas"></canvas>
 </div>
 
 <script>
-const canvas = document.getElementById("map");
-const ctx = canvas.getContext("2d");
-const output = document.getElementById("output");
-const floorSel = document.getElementById("floorSel");
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const mapSelect = document.getElementById('mapFile');
+  let mapImg = new Image();
+  let points = [];
 
-let img = new Image();
-let points = [];
-
-// 这里填入你之前估算的初始数据，方便微调
-const data = {
-  "5f": [
-    { name:"SERVICE", x:680, y:140 },
-    { name:"W516", x:150, y:350 },
-    { name:"N509", x:800, y:200 },
-    { name:"N505", x:280, y:80 }
-  ],
-  "6f": [
-    { name:"Researcher Room", x:880, y:290 },
-    { name:"Scholars Space", x:880, y:100 },
-    { name:"Group Study", x:380, y:360 },
-    { name:"Books A-D", x:650, y:220 },
-    { name:"Books PN-Z", x:180, y:200 }
-  ]
-};
-
-function loadFloor(){
-  const floor = floorSel.value;
-  img.src = floor === "5f" ? "5f_base.jpg" : "6f_base.jpg";
-  // 深拷贝数据，防止切换楼层时数据污染
-  if(data[floor]) {
-      points = JSON.parse(JSON.stringify(data[floor]));
-  } else {
-      points = [];
-  }
-}
-
-img.onload = ()=>{
-  // 画布内部分辨率等于图片原始分辨率（保证坐标精准）
-  canvas.width = img.width;
-  canvas.height = img.height;
-  draw();
-  showOutput(); // 加载完直接显示一次数据
-};
-
-function draw(){
-  ctx.clearRect(0,0,canvas.width,canvas.height);
-  
-  // 绘制底图
-  ctx.drawImage(img,0,0);
-
-  // 绘制点
-  points.forEach(p=>{
-    // 画红点
-    ctx.beginPath();
-    ctx.arc(p.x,p.y, 15, 0, Math.PI*2); // 点画大一点方便看
-    ctx.fillStyle = "rgba(255, 0, 0, 0.7)";
-    ctx.fill();
-    ctx.strokeStyle = "white";
-    ctx.lineWidth = 3;
-    ctx.stroke();
-
-    // 画文字背景
-    ctx.font = "bold 24px Arial"; // 字号调大适应大图
-    const textWidth = ctx.measureText(p.name).width;
-    ctx.fillStyle = "rgba(0,0,0,0.5)";
-    ctx.fillRect(p.x + 20, p.y - 30, textWidth + 10, 40);
-
-    // 画文字
-    ctx.fillStyle = "white";
-    ctx.fillText(p.name, p.x + 25, p.y - 2);
-  });
-}
-
-// --- 核心修改：鼠标事件 ---
-let dragging = null;
-
-// 获取鼠标在画布内的“真实坐标”（考虑缩放）
-function getMousePos(evt) {
-    const rect = canvas.getBoundingClientRect(); // 获取画布在屏幕上的显示大小
-    const scaleX = canvas.width / rect.width;    // 计算横向缩放比例 (原始宽度 / 显示宽度)
-    const scaleY = canvas.height / rect.height;  // 计算纵向缩放比例
-
-    return {
-        x: (evt.clientX - rect.left) * scaleX,   // 屏幕坐标 -> 原始坐标
-        y: (evt.clientY - rect.top) * scaleY
+  function loadMap() {
+    mapImg.src = mapSelect.value;
+    mapImg.onload = () => {
+      canvas.width = mapImg.width;
+      canvas.height = mapImg.height;
+      draw();
     };
-}
+  }
 
-canvas.onmousedown = e => {
-  const pos = getMousePos(e);
-  
-  // 寻找点击了哪个点（检测范围也要按比例放大，比如 40px）
-  for (let p of points){
-    if (Math.hypot(p.x - pos.x, p.y - pos.y) < 50){ 
-      dragging = p;
-      break;
+  // 点击地图新增点位
+  canvas.onclick = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    const x = Math.round((e.clientX - rect.left) * scaleX);
+    const y = Math.round((e.clientY - rect.top) * scaleY);
+
+    const name = prompt("地点名称:", "");
+    if (!name) return;
+    
+    const isShelf = confirm("是书架(Shelf)吗？");
+    const callStart = prompt("ID/索书号起点:", name);
+    const callEnd = isShelf ? prompt("索书号终点:", "") : callStart;
+
+    points.push({
+      type: isShelf ? "Shelf" : "Room",
+      name: name,
+      call_start: callStart,
+      call_end: callEnd,
+      floor: mapSelect.value.split('f')[0] + "F",
+      x: x,
+      y: y,
+      map_file: mapSelect.value
+    });
+    
+    refresh();
+  };
+
+  // 导入 CSV 功能
+  function importCSV(input) {
+    const file = input.files[0];
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      const text = e.target.result;
+      const lines = text.split('\n');
+      const newPoints = [];
+      
+      // 跳过表头，遍历每一行
+      for (let i = 1; i < lines.length; i++) {
+        const cols = lines[i].split(',');
+        if (cols.length < 8) continue;
+        
+        // 清理引号和空格
+        const clean = (str) => str?.replace(/['"]+/g, '').trim();
+        
+        newPoints.push({
+          type: clean(cols[0]),
+          name: clean(cols[1]),
+          call_start: clean(cols[2]),
+          call_end: clean(cols[3]),
+          floor: clean(cols[4]),
+          x: parseInt(cols[5]),
+          y: parseInt(cols[6]),
+          map_file: clean(cols[7])
+        });
+      }
+      points = [...points, ...newPoints];
+      // 自动切换到导入数据所在的地图（以第一个点为准）
+      if(newPoints.length > 0) {
+          mapSelect.value = newPoints[0].map_file;
+          loadMap();
+      }
+      refresh();
+    };
+    reader.readAsText(file);
+  }
+
+  function deletePoint(index) {
+    if(confirm("确定删除这个点吗？")) {
+      points.splice(index, 1);
+      refresh();
     }
   }
-};
 
-canvas.onmousemove = e => {
-  if(!dragging) return;
-  const pos = getMousePos(e);
-  
-  // 更新坐标
-  dragging.x = Math.round(pos.x);
-  dragging.y = Math.round(pos.y);
-  
-  draw();
-  showOutput();
-};
+  function refresh() {
+    renderSidebar();
+    draw();
+  }
 
-canvas.onmouseup = () => {
-  dragging = null;
-};
+  function draw() {
+    ctx.drawImage(mapImg, 0, 0);
+    points.forEach((p, index) => {
+      // 只绘制当前楼层的点
+      if (p.map_file !== mapSelect.value) return;
 
-// 格式化输出为 CSV 格式
-function showOutput(){
-  const floor = floorSel.value;
-  const mapFile = floor === "5f" ? "5f_base.jpg" : "6f_base.jpg";
-  
-  // 生成可以直接贴进 locations_fixed.csv 的文本
-  let csvContent = "";
-  points.forEach(p => {
-     // 简单判断类型
-     let type = p.name.includes("Book") ? "Shelf" : "Room";
-     // 生成一行 CSV
-     csvContent += `${type},${p.name},CODE,CODE,${floor.toUpperCase()},${p.x},${p.y},${mapFile}\n`;
-  });
-  
-  output.textContent = csvContent;
-}
+      ctx.fillStyle = p.type === 'Shelf' ? '#f1c40f' : '#e74c3c';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 45, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = "white";
+      ctx.lineWidth = 10;
+      ctx.stroke();
+      
+      ctx.fillStyle = "white";
+      ctx.font = "bold 50px Arial";
+      ctx.fillText(p.name, p.x + 60, p.y + 20);
+    });
+  }
 
-// 初始化加载
-loadFloor();
+  function renderSidebar() {
+    const list = document.getElementById('point-list');
+    list.innerHTML = points.map((p, i) => `
+      <div class="point-item" style="border-left-color: ${p.map_file === mapSelect.value ? '#27ae60' : '#95a5a6'}">
+        <span class="del-btn" onclick="deletePoint(${i})">✖</span>
+        <b>${p.name}</b> <br>
+        <small>${p.floor} | ${p.type} | (${p.x}, ${p.y})</small>
+      </div>
+    `).join('');
+  }
 
+  function exportCSV() {
+    let csv = "type,name,call_start,call_end,floor,x,y,map_file\n";
+    points.forEach(p => {
+      csv += `${p.type},"${p.name}",${p.call_start},${p.call_end},${p.floor},${p.x},${p.y},${p.map_file}\n`;
+    });
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'locations.csv';
+    a.click();
+  }
+
+  loadMap();
 </script>
-
 </body>
 </html>

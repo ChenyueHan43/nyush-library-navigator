@@ -1,26 +1,22 @@
 from mcp.server.fastmcp import FastMCP
-import library  # 假设你之前的核心逻辑在这个文件里
+import os
+import library
 
-# 1. 初始化 MCP 服务
 mcp = FastMCP("NYUSH_Library_Navigator")
 
-# 2. 定义一个“工具” (Tool)
-# 这个描述非常重要，AI 就是根据这段话决定什么时候调用这个工具的
 @mcp.tool()
 def get_library_map(query: str) -> str:
     """
-    Finds the visual location for a room name (e.g., 'N607') or 
-    a Library of Congress call number (e.g., 'QA76.5').
-    Returns a message and saves a map image.
+    查找房间（如 'N607'）或索书号（如 'QA76.5'）的具体视觉位置。
+    返回文字说明和生成的地图图片路径。
     """
     try:
-        # 调用你之前写的逻辑
         result_msg, image_path = library.search_and_draw(query)
-        
-        # 告诉 AI 结果和图片保存的位置
-        return f"Result: {result_msg}. Map generated at: {image_path}"
+        # 获取图片的绝对路径，方便 AI 客户端读取
+        full_path = os.path.abspath(image_path)
+        return f"{result_msg} 地图局部截图已保存至: {full_path}"
     except Exception as e:
-        return f"Error finding location: {str(e)}"
+        return f"查询失败: {str(e)}"
 
 if __name__ == "__main__":
     mcp.run()
