@@ -1,30 +1,67 @@
 import csv
 from PIL import Image, ImageDraw
 import os
+import difflib  # 引入内置模糊匹配库
 
 # 配置
 DATA_FILE = 'locations.csv'
 
 def find_location(query):
-    """搜索逻辑：匹配房间名、ID 或 索书号范围"""
+    """
+    增强版搜索逻辑：
+    1. 精确/包含匹配 (Exact/Partial Match)
+    2. 模糊匹配 (Fuzzy Match - 处理拼写错误)
+    3. 索书号范围匹配 (Range Match)
+    """
     query = query.strip().upper()
     
+    if not os.path.exists(DATA_FILE):
+        return None
+
     with open(DATA_FILE, mode='r', encoding='utf-8-sig') as f:
         reader = csv.DictReader(f)
         rows = list(reader)
 
-    # 1. 匹配房间名或 ID
+    # --- 第一阶段：精确或包含匹配 ---
+    # 比如输入 "N607" 直接中，或者 "Researcher" 命中 "Researcher Room"
     for row in rows:
-        if query == row['call_start'].upper() or query in row['name'].upper():
+        name = row['name'].upper()
+        call_start = row['call_start'].upper()
+        if query == call_start or query in name:
             return row
 
-    # 2. 匹配索书号范围 (针对书架)
+    # --- 第二阶段：模糊匹配 (处理拼写错误) ---
+    # 比如输入 "Resercher" (漏了 a) 或者 "N608" (想找相邻的)
+    best_match = None
+    highest_score = 0
+    
+    for row in rows:
+        # 尝试匹配名字和 ID
+        targets = [row['name'].upper(), row['call_start'].upper()]
+        for target in targets:
+            # SequenceMatcher 计算相似度 (0.0 - 1.0)
+            score = difflib.SequenceMatcher(None, query, target).ratio()
+            
+            # 设置阈值，通常 0.6 以上认为是有意义的匹配
+            if score > highest_score and score > 0.6:
+                highest_score = score
+                best_match = row
+    
+    if best_match:
+        # 如果模糊匹配分值很高（比如 > 0.8），直接认为找到了
+        # 如果在 0.6~0.8 之间，你也可以在日志里记录一下
+        return best_match
+
+    # --- 第三阶段：匹配索书号范围 (针对书架) ---
+    # 这一步保持你原来的逻辑，用于处理 QA76 这种在 A-D 范围内的逻辑
     for row in rows:
         if row['type'].lower() == 'shelf':
+            # 简单的字母序判断
             if row['call_start'].upper() <= query <= row['call_end'].upper():
                 return row
     
     return None
+
 
 def search_and_draw(query):
     """
