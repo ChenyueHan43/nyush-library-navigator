@@ -2,7 +2,7 @@ import library
 import os
 
 def quick_test():
-    target = "N607" # 你可以换成任何 CSV 里有的名字
+    target = "Resercher" # 你可以换成任何 CSV 里有的名字
     print(f"--- 正在测试查找: {target} ---")
     
     try:

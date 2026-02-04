@@ -7,56 +7,45 @@ import difflib  # 引入内置模糊匹配库
 DATA_FILE = 'locations.csv'
 
 def find_location(query):
-    """
-    增强版搜索逻辑：
-    1. 精确/包含匹配 (Exact/Partial Match)
-    2. 模糊匹配 (Fuzzy Match - 处理拼写错误)
-    3. 索书号范围匹配 (Range Match)
-    """
     query = query.strip().upper()
-    
-    if not os.path.exists(DATA_FILE):
-        return None
+    if not os.path.exists(DATA_FILE): return None
 
     with open(DATA_FILE, mode='r', encoding='utf-8-sig') as f:
-        reader = csv.DictReader(f)
-        rows = list(reader)
+        rows = list(csv.DictReader(f))
 
-    # --- 第一阶段：精确或包含匹配 ---
-    # 比如输入 "N607" 直接中，或者 "Researcher" 命中 "Researcher Room"
-    for row in rows:
-        name = row['name'].upper()
-        call_start = row['call_start'].upper()
-        if query == call_start or query in name:
-            return row
-
-    # --- 第二阶段：模糊匹配 (处理拼写错误) ---
-    # 比如输入 "Resercher" (漏了 a) 或者 "N608" (想找相邻的)
     best_match = None
     highest_score = 0
-    
+
     for row in rows:
-        # 尝试匹配名字和 ID
-        targets = [row['name'].upper(), row['call_start'].upper()]
-        for target in targets:
-            # SequenceMatcher 计算相似度 (0.0 - 1.0)
-            score = difflib.SequenceMatcher(None, query, target).ratio()
+        name = row['name'].upper()
+        call_id = row['call_start'].upper()
+        
+        # --- 策略 1：精确子串包含 (优先级最高) ---
+        if query in name or query in call_id:
+            return row # 只要包含，直接返回，这就是最准的
+
+        # --- 策略 2：改进的模糊匹配 (处理拼写错误) ---
+        # 我们不仅匹配全名，还要匹配名字里的每一个词
+        # 比如把 "Researcher Room (N607)" 拆开
+        words = name.replace('(', ' ').replace(')', ' ').split()
+        words.append(call_id)
+        
+        for word in words:
+            # 计算单词级别的相似度
+            score = difflib.SequenceMatcher(None, query, word).ratio()
             
-            # 设置阈值，通常 0.6 以上认为是有意义的匹配
-            if score > highest_score and score > 0.6:
+            # 如果单词匹配度极高 (比如 Resercher vs Researcher)
+            if score > highest_score:
                 highest_score = score
                 best_match = row
-    
-    if best_match:
-        # 如果模糊匹配分值很高（比如 > 0.8），直接认为找到了
-        # 如果在 0.6~0.8 之间，你也可以在日志里记录一下
+
+    # 提高阈值到 0.7，防止乱匹配
+    if highest_score > 0.7:
         return best_match
 
-    # --- 第三阶段：匹配索书号范围 (针对书架) ---
-    # 这一步保持你原来的逻辑，用于处理 QA76 这种在 A-D 范围内的逻辑
+    # --- 策略 3：索书号范围 ---
     for row in rows:
         if row['type'].lower() == 'shelf':
-            # 简单的字母序判断
             if row['call_start'].upper() <= query <= row['call_end'].upper():
                 return row
     
